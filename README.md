@@ -3,3 +3,8 @@ MATLAB code for density-based topology optimisation of Navier-Stokes fluid flow 
 The authors preprint is available here as "Alexandersen2022_preprint.pdf" and a detailed description of the files of the code base is given in "supplementary_codeDescription.pdf".you can serch it for deep understanding.
 
 The code follow by the https://github.com/sdu-multiphysics/topflow
+
+suggest using cuda to accelerate the opt process,Avoid repeatedly creating sparse matrices,
+Reuse decomposition / use iterative solution instead :
+[Lfac,Ufac,Pfac,Qfac] = lu(J(freedofs,freedofs),'vector');
+dS = -Qfac*(Ufac\(Lfac\(Pfac*R(freedofs))));
