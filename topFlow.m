@@ -11,12 +11,12 @@ Lx = 1.0; Ly = 1.0;
 % DOMAIN DISCRETISATION
 nely = 40; nelx = nely*Lx/Ly;
 % ALLOWABLE FLUID VOLUME FRACTION
-volfrac = 1/2; xinit = volfrac;
+volfrac = 1/4; xinit = volfrac;
 % PHYSICAL PARAMETERS
 Uin = 1e1; rho = 1e1; mu = 1e1;
 % THERMAL PARAMETERS (for problem 3)
 if (probtype == 3)
-    kappa = 4; % Thermal conductivity (W/m·K) - renamed from k to avoid conflicts
+    kappa = 0.4; % Thermal conductivity (W/m·K) - renamed from k to avoid conflicts
     Cp = 4180; % Specific heat capacity (J/kg·K)
     dt_thermal = 0.01; % Time step for transient thermal analysis
 else
