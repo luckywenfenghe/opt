@@ -80,12 +80,12 @@ elseif (probtype == 3) % PIPE BEND WITH HEAT TRANSFER PROBLEM
     DIRU=zeros(nodtot*2,1); DIRP=zeros(nodtot,1); DIRT=zeros(nodtot,1);
     u = @(y) -4*y.^2+4*y; Uinlet = Uin*u([0:inletLength]'/inletLength);
     DIRU(fixedDofsInX) = Uinlet'; 
-    DIRT(fixedDofsInT-3*nodtot) = 25*ones(size(nodesInlet)); % 25°C inlet temperature
+    DIRT(fixedDofsInT-3*nodtot) = 20*ones(size(nodesInlet)); % 25°C inlet temperature
     DIR = [DIRU; DIRP; DIRT];     
     % INLET REYNOLDS NUMBER
     Renum = Uin*(inletLength*Ly/nely)*rho/mu;
     % HEAT SOURCE (uniform over domain)
-    Qsource = 1000; % W/m³ - uniform heat source
+    Qsource = 10; % W/m³ - uniform heat source
 end
 %% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % This code was written by: Joe Alexandersen                              %

@@ -101,9 +101,13 @@ if (buildJR)
         
         % SUPG stabilization - properly formulated
         % Strong residual: R_T = ρCp u·∇T - ∇·(κ∇T) - Q (simplified for steady state)
-        R_T_strong = rho*Cp*(ux(1)*dTdx(1) + ux(2)*dTdx(2)) - kappa*(dTdx(1)*dTdx(1) + dTdx(2)*dTdx(2)) - Q;
-        % SUPG term: τ_T (u·∇N_T) R_T
+        % ----------  Energy strong residual (steady Q1) ----------
+        % 对 Q1 元 Laplacian 为 0，可直接省略扩散项
+        R_T_strong = rho*Cp*(ux(1)*dTdx(1) + ux(2)*dTdx(2)) - Q;
+
+        % ----------  SUPG term ----------
         RT(g) = RT(g) + tauT*(ux(1)*dNtdx(1,g) + ux(2)*dNtdx(2,g))*R_T_strong;
+
     end
     fprintf('Simplifying Ru... \n');
     Ru = simplify(detJ*Ru);

@@ -9,14 +9,14 @@ probtype = 3;
 % DOMAIN SIZE
 Lx = 1.0; Ly = 1.0;
 % DOMAIN DISCRETISATION
-nely = 40; nelx = nely*Lx/Ly;
+nely = 60; nelx = nely*Lx/Ly;
 % ALLOWABLE FLUID VOLUME FRACTION
 volfrac = 1/4; xinit = volfrac;
 % PHYSICAL PARAMETERS
-Uin = 1e1; rho = 1e1; mu = 1e1;
+Uin = 1e1; rho = 1e1; mu = 1e2;
 % THERMAL PARAMETERS (for problem 3)
 if (probtype == 3)
-    kappa = 0.4; % Thermal conductivity (W/m·K) - renamed from k to avoid conflicts
+    kappa = 0.8; % Thermal conductivity (W/m·K) - renamed from k to avoid conflicts
     Cp = 4180; % Specific heat capacity (J/kg·K)
     dt_thermal = 0.01; % Time step for transient thermal analysis
 else
@@ -27,10 +27,10 @@ alphamax = 2.5*mu/(0.01^2); alphamin = 2.5*mu/(100^2);
 % CONTINUATION STRATEGY
 ainit = 2.5*mu/(0.1^2);
 qinit = (-xinit*(alphamax-alphamin) - ainit + alphamax)/(xinit*(ainit-alphamin));
-qavec = qinit./[1 2 10 20]; qanum = length(qavec); conit = 50;
+qavec = qinit./[1 2 10 20]; qanum = length(qavec); conit = 25;
 % OPTIMISATION PARAMETERS
-maxiter = qanum*conit; mvlim = 0.2; plotdes = 1;
-chlim = 1e-3; chnum = 5;
+maxiter = qanum*conit; mvlim = 0.25; plotdes = 1;
+chlim = 1e-3; chnum = 3;
 % NEWTON SOLVER PARAMETERS
 nltol = 1e-6; nlmax = 25; plotres = 0;
 % EXPORT FILE
@@ -120,25 +120,30 @@ while (loop <= maxiter)
         % BUILD RESIDUAL AND JACOBIAN
         if (probtype == 3)
             % Extract state variables for thermal problem (16 DOFs per element)
-            uVars = S(edofMat(:,1:8));
-            pVars = S(edofMat(:,9:12));
-            TVars = S(edofMat(:,13:16));
-
-            u = uVars.'; p = pVars.'; T = TVars.';
-            sR = RES(dxv,dyv,muv,rhov,kv,Cpv,Qv,alpha.',...
-                u(1,:),u(2,:),u(3,:),u(4,:),u(5,:),u(6,:),u(7,:),u(8,:),...
-                p(1,:),p(2,:),p(3,:),p(4,:),...
-                T(1,:),T(2,:),T(3,:),T(4,:));
+            uVars = S(edofMat(:,1:8)); % Velocity components u1-u8
+            pVars = S(edofMat(:,9:12)); % Pressure components p1-p4  
+            TVars = S(edofMat(:,13:16)); % Temperature components T1-T4
+            
+            sR = zeros(16, neltot);
+            for i = 1:neltot
+                sR(:,i) = RES(dxv(i),dyv(i),muv(i),rhov(i),kv(i),Cpv(i),Qv(i),alpha(i),...
+                    uVars(i,1),uVars(i,2),uVars(i,3),uVars(i,4),uVars(i,5),uVars(i,6),uVars(i,7),uVars(i,8),...
+                    pVars(i,1),pVars(i,2),pVars(i,3),pVars(i,4),...
+                    TVars(i,1),TVars(i,2),TVars(i,3),TVars(i,4));
+            end
         else
-            uVars = S(edofMat(:,1:8));
-            pVars = S(edofMat(:,9:12));
-
-            u = uVars.'; p = pVars.';
-            sR = RES(dxv,dyv,muv,rhov,kv,Cpv,Qv,alpha.',...
-                u(1,:),u(2,:),u(3,:),u(4,:),u(5,:),u(6,:),u(7,:),u(8,:),...
-                p(1,:),p(2,:),p(3,:),p(4,:),...
-                zeros(1,neltot),zeros(1,neltot),zeros(1,neltot),zeros(1,neltot));
-            sR = sR(1:12,:);
+            % Extract state variables for non-thermal problem (12 DOFs per element)
+            uVars = S(edofMat(:,1:8)); % Velocity components u1-u8
+            pVars = S(edofMat(:,9:12)); % Pressure components p1-p4
+            
+            sR = zeros(16, neltot); % Still need 16 DOFs for consistent function interface
+            for i = 1:neltot
+                sR(:,i) = RES(dxv(i),dyv(i),muv(i),rhov(i),kv(i),Cpv(i),Qv(i),alpha(i),...
+                    uVars(i,1),uVars(i,2),uVars(i,3),uVars(i,4),uVars(i,5),uVars(i,6),uVars(i,7),uVars(i,8),...
+                    pVars(i,1),pVars(i,2),pVars(i,3),pVars(i,4),...
+                    0,0,0,0); % Default temperature values for non-thermal problems
+            end
+            sR = sR(1:12,:); % Extract only momentum and continuity equations
         end
         R = sparse(iR,jR,sR(:)); R(fixedDofs) = 0;
         if (nlit == 1); r0 = norm(R); end
@@ -149,16 +154,24 @@ while (loop <= maxiter)
         end
         
         if (probtype == 3)
-            sJ = JAC(dxv,dyv,muv,rhov,kv,Cpv,Qv,alpha.',...
-                u(1,:),u(2,:),u(3,:),u(4,:),u(5,:),u(6,:),u(7,:),u(8,:),...
-                p(1,:),p(2,:),p(3,:),p(4,:),...
-                T(1,:),T(2,:),T(3,:),T(4,:));
+            sJ = zeros(256, neltot);
+            for i = 1:neltot
+                sJ(:,i) = JAC(dxv(i),dyv(i),muv(i),rhov(i),kv(i),Cpv(i),Qv(i),alpha(i),...
+                    uVars(i,1),uVars(i,2),uVars(i,3),uVars(i,4),uVars(i,5),uVars(i,6),uVars(i,7),uVars(i,8),...
+                    pVars(i,1),pVars(i,2),pVars(i,3),pVars(i,4),...
+                    TVars(i,1),TVars(i,2),TVars(i,3),TVars(i,4));
+            end
+
         else
-            sJ = JAC(dxv,dyv,muv,rhov,kv,Cpv,Qv,alpha.',...
-                u(1,:),u(2,:),u(3,:),u(4,:),u(5,:),u(6,:),u(7,:),u(8,:),...
-                p(1,:),p(2,:),p(3,:),p(4,:),...
-                zeros(1,neltot),zeros(1,neltot),zeros(1,neltot),zeros(1,neltot));
-            sJ = sJ(1:144,:);
+            sJ = zeros(256, neltot); % Still need 256 for consistent function interface
+            for i = 1:neltot
+                sJ(:,i) = JAC(dxv(i),dyv(i),muv(i),rhov(i),kv(i),Cpv(i),Qv(i),alpha(i),...
+                    uVars(i,1),uVars(i,2),uVars(i,3),uVars(i,4),uVars(i,5),uVars(i,6),uVars(i,7),uVars(i,8),...
+                    pVars(i,1),pVars(i,2),pVars(i,3),pVars(i,4),...
+                    0,0,0,0); % Default temperature values for non-thermal problems
+            end
+
+                sJ = sJ(1:144,:); % Extract only momentum and continuity entries
         end
         J = sparse(iJ,jJ,sJ(:)); J = (ND'*J*ND+EN);  
         % CALCULATE NEWTON STEP
@@ -170,21 +183,24 @@ while (loop <= maxiter)
             pVars = Sp(edofMat(:,9:12));
             TVars = Sp(edofMat(:,13:16));
 
-            u = uVars.'; p = pVars.'; T = TVars.';
-            sR = RES(dxv,dyv,muv,rhov,kv,Cpv,Qv,alpha.',...
-                u(1,:),u(2,:),u(3,:),u(4,:),u(5,:),u(6,:),u(7,:),u(8,:),...
-                p(1,:),p(2,:),p(3,:),p(4,:),...
-                T(1,:),T(2,:),T(3,:),T(4,:));
+            sR = zeros(16, neltot);
+            for i = 1:neltot
+                sR(:,i) = RES(dxv(i),dyv(i),muv(i),rhov(i),kv(i),Cpv(i),Qv(i),alpha(i),...
+                    uVars(i,1),uVars(i,2),uVars(i,3),uVars(i,4),uVars(i,5),uVars(i,6),uVars(i,7),uVars(i,8),...
+                    pVars(i,1),pVars(i,2),pVars(i,3),pVars(i,4),...
+                    TVars(i,1),TVars(i,2),TVars(i,3),TVars(i,4));
+            end
+            
         else
             uVars = Sp(edofMat(:,1:8));
             pVars = Sp(edofMat(:,9:12));
 
-            u = uVars.'; p = pVars.';
-            sR = RES(dxv,dyv,muv,rhov,kv,Cpv,Qv,alpha.',...
-                u(1,:),u(2,:),u(3,:),u(4,:),u(5,:),u(6,:),u(7,:),u(8,:),...
-                p(1,:),p(2,:),p(3,:),p(4,:),...
-                zeros(1,neltot),zeros(1,neltot),zeros(1,neltot),zeros(1,neltot));
-            sR = sR(1:12,:);
+            sR = zeros(12, neltot);
+            for i = 1:neltot
+                sR(:,i) = RES(dxv(i),dyv(i),muv(i),rhov(i),alpha(i),...
+                    uVars(i,1),uVars(i,2),uVars(i,3),uVars(i,4),uVars(i,5),uVars(i,6),uVars(i,7),uVars(i,8),...
+                    pVars(i,1),pVars(i,2),pVars(i,3),pVars(i,4));
+             end
         end
         
         R = sparse(iR,jR,sR(:)); R(fixedDofs) = 0; r2 = norm(R);
@@ -194,21 +210,24 @@ while (loop <= maxiter)
             pVars = Sp(edofMat(:,9:12));
             TVars = Sp(edofMat(:,13:16));
 
-            u = uVars.'; p = pVars.'; T = TVars.';
-            sR = RES(dxv,dyv,muv,rhov,kv,Cpv,Qv,alpha.',...
-                u(1,:),u(2,:),u(3,:),u(4,:),u(5,:),u(6,:),u(7,:),u(8,:),...
-                p(1,:),p(2,:),p(3,:),p(4,:),...
-                T(1,:),T(2,:),T(3,:),T(4,:));
+            sR = zeros(16, neltot);
+            for i = 1:neltot
+                sR(:,i) = RES(dxv(i),dyv(i),muv(i),rhov(i),kv(i),Cpv(i),Qv(i),alpha(i),...
+                    uVars(i,1),uVars(i,2),uVars(i,3),uVars(i,4),uVars(i,5),uVars(i,6),uVars(i,7),uVars(i,8),...
+                    pVars(i,1),pVars(i,2),pVars(i,3),pVars(i,4),...
+                    TVars(i,1),TVars(i,2),TVars(i,3),TVars(i,4));
+            end
+            
         else
             uVars = Sp(edofMat(:,1:8));
             pVars = Sp(edofMat(:,9:12));
 
-            u = uVars.'; p = pVars.';
-            sR = RES(dxv,dyv,muv,rhov,kv,Cpv,Qv,alpha.',...
-                u(1,:),u(2,:),u(3,:),u(4,:),u(5,:),u(6,:),u(7,:),u(8,:),...
-                p(1,:),p(2,:),p(3,:),p(4,:),...
-                zeros(1,neltot),zeros(1,neltot),zeros(1,neltot),zeros(1,neltot));
-            sR = sR(1:12,:);
+            sR = zeros(12, neltot);
+            for i = 1:neltot
+                sR(:,i) = RES(dxv(i),dyv(i),muv(i),rhov(i),alpha(i),...
+                    uVars(i,1),uVars(i,2),uVars(i,3),uVars(i,4),uVars(i,5),uVars(i,6),uVars(i,7),uVars(i,8),...
+                    pVars(i,1),pVars(i,2),pVars(i,3),pVars(i,4));
+            end
         end
         
         R = sparse(iR,jR,sR(:)); R(fixedDofs) = 0; r3 = norm(R);
@@ -224,15 +243,21 @@ while (loop <= maxiter)
     if (fail == 1); error('ERROR: Solver did not converge after retry from zero!\n      Stopping optimisation.\n'); end
     %% OBJECTIVE EVALUATION
     if (probtype == 3)
-        phiVals = PHI(dxv,dyv,muv,kv,alpha.',...
-            u(1,:),u(2,:),u(3,:),u(4,:),u(5,:),u(6,:),u(7,:),u(8,:),...
-            p(1,:),p(2,:),p(3,:),p(4,:),...
-            T(1,:),T(2,:),T(3,:),T(4,:));
+        phiVals = zeros(1, neltot);
+        for i = 1:neltot
+            phiVals(i) = PHI(dxv(i),dyv(i),muv(i),kv(i),alpha(i),...
+                uVars(i,1),uVars(i,2),uVars(i,3),uVars(i,4),uVars(i,5),uVars(i,6),uVars(i,7),uVars(i,8),...
+                pVars(i,1),pVars(i,2),pVars(i,3),pVars(i,4),...
+                TVars(i,1),TVars(i,2),TVars(i,3),TVars(i,4));
+        end
         obj = sum(phiVals);
     else
-        phiVals = PHI(dxv,dyv,muv,alpha.',...
-            u(1,:),u(2,:),u(3,:),u(4,:),u(5,:),u(6,:),u(7,:),u(8,:),...
-            p(1,:),p(2,:),p(3,:),p(4,:));
+        phiVals = zeros(1, neltot);
+        for i = 1:neltot
+            phiVals(i) = PHI(dxv(i),dyv(i),muv(i),alpha(i),...
+                uVars(i,1),uVars(i,2),uVars(i,3),uVars(i,4),uVars(i,5),uVars(i,6),uVars(i,7),uVars(i,8),...
+                pVars(i,1),pVars(i,2),pVars(i,3),pVars(i,4));
+        end
         obj = sum(phiVals);
     end
     change = abs(objOld-obj)/objOld; objOld = obj;
@@ -253,51 +278,70 @@ while (loop <= maxiter)
     fprintf('      Design it.:%4i\n',loop);
     %% ADJOINT SOLVER
     if (probtype == 3)
-        dphiVals = dPHIds(dxv,dyv,muv,kv,alpha.',...
-            u(1,:),u(2,:),u(3,:),u(4,:),u(5,:),u(6,:),u(7,:),u(8,:),...
-            p(1,:),p(2,:),p(3,:),p(4,:),...
-            T(1,:),T(2,:),T(3,:),T(4,:));
-        sR = [dphiVals; zeros(0,neltot)];
+        dphiVals = zeros(16, neltot);
+        for i = 1:neltot
+            dphiVals(:,i) = dPHIds(dxv(i),dyv(i),muv(i),kv(i),alpha(i),...
+                uVars(i,1),uVars(i,2),uVars(i,3),uVars(i,4),uVars(i,5),uVars(i,6),uVars(i,7),uVars(i,8),...
+                pVars(i,1),pVars(i,2),pVars(i,3),pVars(i,4),...
+                TVars(i,1),TVars(i,2),TVars(i,3),TVars(i,4));
+        end
+        sR = [dphiVals; zeros(0,neltot)]; % No padding needed as dPHIds now returns 16 components
     else
-        dphiVals = dPHIds(dxv,dyv,muv,alpha.',...
-            u(1,:),u(2,:),u(3,:),u(4,:),u(5,:),u(6,:),u(7,:),u(8,:),...
-            p(1,:),p(2,:),p(3,:),p(4,:));
-        sR = [dphiVals; zeros(0,neltot)];
+        dphiVals = zeros(12, neltot);
+        for i = 1:neltot
+            dphiVals(:,i) = dPHIds(dxv(i),dyv(i),muv(i),alpha(i),...
+                uVars(i,1),uVars(i,2),uVars(i,3),uVars(i,4),uVars(i,5),uVars(i,6),uVars(i,7),uVars(i,8),...
+                pVars(i,1),pVars(i,2),pVars(i,3),pVars(i,4));
+        end
+        sR = [dphiVals; zeros(0,neltot)]; % No padding needed
     end
     RHS = sparse(iR,jR,sR(:)); RHS(fixedDofs) = 0;
     if (probtype == 3)
-        sJ = JAC(dxv,dyv,muv,rhov,kv,Cpv,Qv,alpha.',...
-            u(1,:),u(2,:),u(3,:),u(4,:),u(5,:),u(6,:),u(7,:),u(8,:),...
-            p(1,:),p(2,:),p(3,:),p(4,:),...
-            T(1,:),T(2,:),T(3,:),T(4,:));
+        sJ = zeros(256, neltot);
+        for i = 1:neltot
+            sJ(:,i) = JAC(dxv(i),dyv(i),muv(i),rhov(i),kv(i),Cpv(i),Qv(i),alpha(i),...
+                uVars(i,1),uVars(i,2),uVars(i,3),uVars(i,4),uVars(i,5),uVars(i,6),uVars(i,7),uVars(i,8),...
+                pVars(i,1),pVars(i,2),pVars(i,3),pVars(i,4),...
+                TVars(i,1),TVars(i,2),TVars(i,3),TVars(i,4));
+        end
     else
-        sJ = JAC(dxv,dyv,muv,rhov,kv,Cpv,Qv,alpha.',...
-            u(1,:),u(2,:),u(3,:),u(4,:),u(5,:),u(6,:),u(7,:),u(8,:),...
-            p(1,:),p(2,:),p(3,:),p(4,:),...
-            zeros(1,neltot),zeros(1,neltot),zeros(1,neltot),zeros(1,neltot));
-        sJ = sJ(1:144,:);
+        sJ = zeros(256, neltot); % Still need 256 for consistent function interface
+        for i = 1:neltot
+            sJ(:,i) = JAC(dxv(i),dyv(i),muv(i),rhov(i),kv(i),Cpv(i),Qv(i),alpha(i),...
+                uVars(i,1),uVars(i,2),uVars(i,3),uVars(i,4),uVars(i,5),uVars(i,6),uVars(i,7),uVars(i,8),...
+                pVars(i,1),pVars(i,2),pVars(i,3),pVars(i,4),...
+                0,0,0,0); % Default temperature values for non-thermal problems
+        end
+        sJ = sJ(1:144,:); % Extract only momentum and continuity entries
     end
     J = sparse(iJ,jJ,sJ(:)); J = (ND'*J*ND+EN);
     L = J'\RHS;
     %% COMPUTE SENSITIVITIES
     % OBJECTIVE
     if (probtype == 3)
-        drdgVals = dRESdg(dxv,dyv,muv,rhov,kv,Cpv,Qv,alpha.',dalpha.',...
-            u(1,:),u(2,:),u(3,:),u(4,:),u(5,:),u(6,:),u(7,:),u(8,:),...
-            p(1,:),p(2,:),p(3,:),p(4,:),...
-            T(1,:),T(2,:),T(3,:),T(4,:));
-        dphidgVals = dPHIdg(dxv,dyv,muv,kv,alpha.',dalpha.',...
-            u(1,:),u(2,:),u(3,:),u(4,:),u(5,:),u(6,:),u(7,:),u(8,:),...
-            p(1,:),p(2,:),p(3,:),p(4,:),...
-            T(1,:),T(2,:),T(3,:),T(4,:));
+        drdgVals = zeros(16, neltot);
+        dphidgVals = zeros(1, neltot);
+        for i = 1:neltot
+            drdgVals(:,i) = dRESdg(dxv(i),dyv(i),muv(i),rhov(i),kv(i),Cpv(i),Qv(i),alpha(i),dalpha(i),...
+                uVars(i,1),uVars(i,2),uVars(i,3),uVars(i,4),uVars(i,5),uVars(i,6),uVars(i,7),uVars(i,8),...
+                pVars(i,1),pVars(i,2),pVars(i,3),pVars(i,4),...
+                TVars(i,1),TVars(i,2),TVars(i,3),TVars(i,4));
+            dphidgVals(i) = dPHIdg(dxv(i),dyv(i),muv(i),kv(i),alpha(i),dalpha(i),...
+                uVars(i,1),uVars(i,2),uVars(i,3),uVars(i,4),uVars(i,5),uVars(i,6),uVars(i,7),uVars(i,8),...
+                pVars(i,1),pVars(i,2),pVars(i,3),pVars(i,4),...
+                TVars(i,1),TVars(i,2),TVars(i,3),TVars(i,4));
+        end
         dRdg = sparse(iR(:),jE(:),drdgVals(:));
         dphidg = dphidgVals;
         % Add temperature equation contribution to sensitivity
         try
-            sR_temp = dRESTemperature(dxv,dyv,muv,rhov,kv,Cpv,Qv,alpha.',...
-                u(1,:),u(2,:),u(3,:),u(4,:),u(5,:),u(6,:),u(7,:),u(8,:),...
-                p(1,:),p(2,:),p(3,:),p(4,:),...
-                T(1,:),T(2,:),T(3,:),T(4,:));
+            sR_temp = zeros(4, neltot);
+            for i = 1:neltot
+                sR_temp(:,i) = dRESTemperature(dxv(i),dyv(i),muv(i),rhov(i),kv(i),Cpv(i),Qv(i),alpha(i),...
+                    uVars(i,1),uVars(i,2),uVars(i,3),uVars(i,4),uVars(i,5),uVars(i,6),uVars(i,7),uVars(i,8),...
+                    pVars(i,1),pVars(i,2),pVars(i,3),pVars(i,4),...
+                    TVars(i,1),TVars(i,2),TVars(i,3),TVars(i,4));
+            end
             % Extract temperature adjoint variables (last 4 entries per element)
             L_temp_elem = L(edofMat(:,13:16)); % Extract 4 temperature adjoint values per element (neltot×4)
             L_temp = L_temp_elem.'; % Transpose to 4×neltot to match sR_temp dimensions
@@ -310,12 +354,16 @@ while (loop <= maxiter)
             fprintf('      Warning: dRESTemperature.m call failed (%s), using standard sensitivity\n', ME.message);
         end
     else
-        drdgVals = dRESdg(dxv,dyv,muv,rhov,alpha.',dalpha.',...
-            u(1,:),u(2,:),u(3,:),u(4,:),u(5,:),u(6,:),u(7,:),u(8,:),...
-            p(1,:),p(2,:),p(3,:),p(4,:));
-        dphidgVals = dPHIdg(dxv,dyv,muv,alpha.',dalpha.',...
-            u(1,:),u(2,:),u(3,:),u(4,:),u(5,:),u(6,:),u(7,:),u(8,:),...
-            p(1,:),p(2,:),p(3,:),p(4,:));
+        drdgVals = zeros(12, neltot);
+        dphidgVals = zeros(1, neltot);
+        for i = 1:neltot
+            drdgVals(:,i) = dRESdg(dxv(i),dyv(i),muv(i),rhov(i),alpha(i),dalpha(i),...
+                uVars(i,1),uVars(i,2),uVars(i,3),uVars(i,4),uVars(i,5),uVars(i,6),uVars(i,7),uVars(i,8),...
+                pVars(i,1),pVars(i,2),pVars(i,3),pVars(i,4));
+            dphidgVals(i) = dPHIdg(dxv(i),dyv(i),muv(i),alpha(i),dalpha(i),...
+                uVars(i,1),uVars(i,2),uVars(i,3),uVars(i,4),uVars(i,5),uVars(i,6),uVars(i,7),uVars(i,8),...
+                pVars(i,1),pVars(i,2),pVars(i,3),pVars(i,4));
+        end
         dRdg = sparse(iR(:),jE(:),drdgVals(:));
         dphidg = dphidgVals;
         sens = reshape(dphidg - L'*dRdg,nely,nelx);
@@ -346,8 +394,12 @@ fprintf('      Final objective: %4.3e\n',obj);
 fprintf('      Total time taken: %6.2f min\n',destime/60);
 fprintf('=========================================================\n');
 %% PLOT RESULTS
+
 run('postproc.m');
-if (exportdxf); run('export.m'); end
+
+if exist('exportdxf','var') && exportdxf
+    run('export.m');
+end
 %% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % This code was written by: Joe Alexandersen                              %
 %                           Department of Mechanical and                  %
