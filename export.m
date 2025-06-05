@@ -112,11 +112,16 @@ if (probtype == 3)
 end
 
 %% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% This code was written by: Joe Alexandersen                              %
+% This code was initial written by: Joe Alexandersen                      %
 %                           Department of Mechanical and                  %
 %                                         Electrical Engineering          %
 %                           University of Southern Denmark                %
-%                           DK-5230 Odense M, Denmark.                    %
+%                           DK-5230 Odense M, Denmark.                    % 
+% Has been refined by authors: https://github.com/luckywenfenghe          %
+% Adaptive Move-Limit via Trust-Region MMA                                %
+% Automatic β-Projection Continuation                                     %
+% Re-use of Sparse LU Factorization in Newton Loops                       %
+%                                                                         %
 % Please send your comments and questions to: joal@sdu.dk                 %
 %                                                                         %
 % The code is intended for educational purposes and theoretical details   %
