@@ -85,7 +85,7 @@ elseif (probtype == 3) % PIPE BEND WITH HEAT TRANSFER PROBLEM
     % INLET REYNOLDS NUMBER
     Renum = Uin*(inletLength*Ly/nely)*rho/mu;
     % HEAT SOURCE (uniform over domain)
-    Qsource = 10; % W/m³ - uniform heat source
+    Qsource = 1000; % W/m³ - uniform heat source
 end
 %% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % This code was written by: Joe Alexandersen                              %

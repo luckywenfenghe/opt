@@ -28,9 +28,22 @@ alphamax = 2.5*mu/(0.01^2); alphamin = 2.5*mu/(100^2);
 ainit = 2.5*mu/(0.1^2);
 qinit = (-xinit*(alphamax-alphamin) - ainit + alphamax)/(xinit*(ainit-alphamin));
 qavec = qinit./[1 2 10 20]; qanum = length(qavec); conit = 25;
-% OPTIMISATION PARAMETERS
-maxiter = qanum*conit; mvlim = 0.25; plotdes = 1;
+% OPTIMISATION PARAMETERS ADAPTIVE
 chlim = 1e-3; chnum = 3;
+mv_max = 0.25; mv_min = 0.05;
+tau_up = 1.25; tau_dn = 0.60;
+eps_hi = 2*chlim; eps_lo = 0.5*chlim;
+mvlim = mv_max;   % INTIAL MAXIMUM TO FIND STRUCTURE
+
+% HEAVISIDE β-PROJECTION PARAMETERS
+beta_init = 1.0; beta_max = 8.0; 
+beta_vec = [1 2 4 8]; beta_num = length(beta_vec); beta_conit = 20;
+beta_step = 1; beta = beta_init;
+eta = 0.5; % Threshold parameter for projection
+
+% OPTIMISATION PARAMETERS
+maxiter = qanum*conit + beta_num*beta_conit;  plotdes = 1;
+
 % NEWTON SOLVER PARAMETERS
 nltol = 1e-6; nlmax = 25; plotres = 0;
 % EXPORT FILE
@@ -88,6 +101,8 @@ loop = 0; loopcont = 0; nlittot = 0; chcnt = 0;
 change = Inf; objOld = Inf;
 % CONTINUATION
 qastep = 1; qa = qavec(1);
+% BETA PROJECTION CONTINUATION 
+loopbeta = 0; beta_chcnt = 0;
 % VECTORISED CONSTANTS
 dxv = dx*ones(1,neltot); dyv = dy*ones(1,neltot);
 muv = mu*ones(1,neltot); rhov = rho*ones(1,neltot);
@@ -102,6 +117,9 @@ fprintf('      Problem number: %2i - Reynolds number: %3.2e\n',probtype,Renum);
 if (probtype == 3)
     fprintf('      Heat transfer problem with uniform heat source\n');
 end
+fprintf('      Heaviside β-projection: %s\n', 'Enabled');
+fprintf('      Beta schedule: [%s] - Max iterations: %d\n', num2str(beta_vec), maxiter);
+fprintf('      Adaptive move-limit: [%4.2f, %4.2f]\n', mv_min, mv_max);
 fprintf('=========================================================\n');
 fprintf('      Design it.:   0\n');
 %% START ITERATION
@@ -200,7 +218,7 @@ while (loop <= maxiter)
                 sR(:,i) = RES(dxv(i),dyv(i),muv(i),rhov(i),alpha(i),...
                     uVars(i,1),uVars(i,2),uVars(i,3),uVars(i,4),uVars(i,5),uVars(i,6),uVars(i,7),uVars(i,8),...
                     pVars(i,1),pVars(i,2),pVars(i,3),pVars(i,4));
-             end
+            end
         end
         
         R = sparse(iR,jR,sR(:)); R(fixedDofs) = 0; r2 = norm(R);
@@ -261,19 +279,37 @@ while (loop <= maxiter)
         obj = sum(phiVals);
     end
     change = abs(objOld-obj)/objOld; objOld = obj;
+    %% ADAPTIVE MOVE-LIMIT UPDATE
+    % Dual-threshold response-driven adaptive move-limit adjustment
+    mvlim_old = mvlim;
+    if (change > eps_hi)            % Fast descent - can be more aggressive
+        mvlim = min(mvlim * tau_up, mv_max);
+    elseif (change < eps_lo)        % Fine-tuning/oscillation region - tighten
+        mvlim = max(mvlim * tau_dn, mv_min);
+    end
+    % Reset move-limit when entering new continuation step (optional)
+    if (qastep < qanum && (loopcont == conit || chcnt == chnum) && mvlim > 0.15)
+        mvlim = min(0.15, mvlim);  % Conservative reset for new qa
+    end
+    % Special handling for beta projection changes (usually causes Change to drop)
+    if (beta_step > 1 && change < eps_lo && mvlim > mv_min * 1.5)
+        mvlim = max(mvlim * 0.8, mv_min);  % Extra reduction for beta steps
+    end
     %% VOLUME CONSTRAINT
     V = mean(xPhys(:));
     %% PRINT RESULTS
     ittime = toc(ittime);
     fprintf('      Obj.: %3.2e - Constr.: %3.2e - Md: %3.2f\n',obj,V,Md);
     fprintf('      Change: %4.3e - It. time: %6.3f sec\n',change,ittime);
-    fprintf('      Contin. step: %2i - qa: %4.3e\n',qastep,qa);
+    fprintf('      Contin. step: %2i - qa: %4.3e - mvlim: %5.3f\n',qastep,qa,mvlim);
+    fprintf('      Beta step: %2i - beta: %3.1f\n',beta_step,beta);
     ittime = tic;
     %% EVALUATE CURRENT ITERATE - CONTINUE UNLESS CONSIDERED CONVERGED
     if (change < chlim); chcnt = chcnt + 1; else; chcnt = 0; end
-    if (qastep == qanum && ( (chcnt == chnum) || (loopcont == conit) ) ); end
+    if (change < chlim); beta_chcnt = beta_chcnt + 1; else; beta_chcnt = 0; end
+    if (qastep == qanum && beta_step == beta_num && ( (chcnt == chnum) || (loopbeta == beta_conit) ) ); break; end
     %% PRINT HEADER FOR ITERATION
-    loop = loop + 1; loopcont = loopcont + 1;
+    loop = loop + 1; loopcont = loopcont + 1; loopbeta = loopbeta + 1;
     fprintf('---------------------------------------------------------\n');
     fprintf('      Design it.:%4i\n',loop);
     %% ADJOINT SOLVER
@@ -380,10 +416,26 @@ while (loop <= maxiter)
         if mean(xnew(:)) > volfrac; l1 = lmid; else; l2 = lmid; end
     end
     xPhys = xnew;
+    
+    %% HEAVISIDE β-PROJECTION
+    % Apply Heaviside projection to design field
+    xPhys = (tanh(beta*eta) + tanh(beta*(xPhys-eta)))./(tanh(beta*eta) + tanh(beta*(1-eta)));
+    
     %% CONTINUATION UPDATE
     if (qastep < qanum && (loopcont == conit || chcnt == chnum) )
         loopcont = 0; chcnt = 0;
         qastep = qastep + 1; qa = qavec(qastep);
+        % Reset mvlim for new qa step
+        if (mvlim > 0.15); mvlim = 0.15; end
+    end
+    
+    %% BETA PROJECTION CONTINUATION UPDATE
+    if (qastep == qanum && beta_step < beta_num && (loopbeta == beta_conit || beta_chcnt == chnum))
+        loopbeta = 0; beta_chcnt = 0;
+        beta_step = beta_step + 1; beta = beta_vec(beta_step);
+        % Reset mvlim for new beta step - more conservative
+        mvlim = max(mvlim * 0.7, mv_min);
+        fprintf('      Updated beta to: %3.1f - mvlim reset to: %5.3f\n', beta, mvlim);
     end
 end
 %% PRINT FINAL INFORMATION
